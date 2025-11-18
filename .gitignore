@@ -1,10 +1,52 @@
-# Python-generated files
+# Documentation files - not needed in GitHub
+NEXT_STEPS.md
+POSTMAN_QUERIES_TO_ADD.md
+POSTMAN_QUERY_EXAMPLES.md
+SAP_API_MCP_ANALYSIS.md
+SAPS4HANACArtifacts copy.txt
+SAPS4HANACArtifactsSHORT.txt
+
+# Python
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
 wheels/
-*.egg-info
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
 # Virtual environments
+venv/
+env/
+ENV/
 .venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.txt
+!requirements.txt
+!README.md
