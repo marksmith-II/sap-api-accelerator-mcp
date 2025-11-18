@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sap-api-accelerator-mcp"
 version = "0.1.0"
-description = "Add your description here"
+description = "SAP Business Accelerator Hub MCP"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
