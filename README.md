@@ -33,15 +33,13 @@ uv pip install -e .
 
 ## Available MCP Tools
 
-The server provides **12 powerful tools** for exploring SAP's API catalog:
+The server provides **8 powerful tools** for exploring SAP's API catalog:
 
 ### Core Discovery Tools
 
 | Tool | Parameters | Description |
 | --- | --- | --- |
 | `list_sap_content_packages` | `search_term` (optional), `max_results` (default: 100) | Lists all content packages with optional search filtering. Enhanced with OData filtering and result limiting. |
-| `get_sap_package_artifacts` | `package_id`, `artifact_type` (optional), `subtype` (optional), `state` (optional), `max_results` (default: 100) | Gets artifacts for a specific package with advanced filtering by type, subtype, and state. |
-| `search_sap_artifacts` | `query`, `artifact_type` (optional), `subtype` (optional), `state` (default: ACTIVE), `package_id` (optional), `max_results` (default: 50) | **Universal search tool** - Search artifacts across all packages or within a specific package. Most versatile tool. |
 | `get_sap_package_info` | `package_id` | Get detailed information about a specific content package. |
 | `get_sap_artifact_details` | `artifact_name`, `artifact_type` (default: API) | Get complete details for a specific artifact including all metadata. |
 
@@ -50,8 +48,6 @@ The server provides **12 powerful tools** for exploring SAP's API catalog:
 | Tool | Parameters | Description |
 | --- | --- | --- |
 | `list_sap_artifacts_by_type` | `artifact_type`, `subtype` (optional), `package_id` (optional), `max_results` (default: 50) | List artifacts filtered by type, optionally by subtype and package. |
-| `find_sap_apis_by_protocol` | `protocol`, `package_id` (optional), `state` (default: ACTIVE), `max_results` (default: 50) | Find APIs by protocol type (ODATAV4, ODATA, SOAP, REST). |
-| `find_recent_sap_artifacts` | `sort_by` (default: modified), `days` (optional), `max_results` (default: 20) | Find recently updated or newly created artifacts. |
 | `count_sap_artifacts` | `package_id` (optional), `artifact_type` (optional), `state` (optional) | Get count of artifacts with optional filters for statistics. |
 | `find_deprecated_sap_apis` | `package_id` (optional), `max_results` (default: 50) | Find deprecated APIs that may need migration planning. |
 
@@ -92,7 +88,7 @@ MCPJam Inspector offers a browser UI for exercising MCP servers without wiring u
 
 3. **Exercise the tools**
    - Open the **Tools** tab, choose `list_sap_content_packages`, and click **Execute** to confirm catalog access.
-   - Pick `get_sap_package_artifacts`, supply a `TechnicalName` from the previous response, and execute again to view the artifact breakdown.
+   - Pick `get_sap_package_info`, supply a `TechnicalName` from the previous response, and execute again to view package details.
 
 4. **Inspect traffic / troubleshoot**
    - Use the **Messages** view to see raw MCP JSON exchange.
@@ -100,65 +96,32 @@ MCPJam Inspector offers a browser UI for exercising MCP servers without wiring u
 
 ## Use Case Examples
 
-### Example 1: Find APIs for Order Management
-```
-search_sap_artifacts(query="Order", artifact_type="API", subtype="ODATAV4", state="ACTIVE")
-```
-This searches for active OData V4 APIs related to "Order" across all packages.
-
-### Example 2: Explore a Specific Package
+### Example 1: Explore a Specific Package
 ```
 get_sap_package_info(package_id="SAPS4HANACloud")
-get_sap_package_artifacts(package_id="SAPS4HANACloud", artifact_type="API", max_results=50)
 ```
-First get package info, then list all APIs in that package.
+Get detailed information about a specific package.
 
-### Example 3: Find Recently Updated APIs
-```
-find_recent_sap_artifacts(sort_by="modified", days=30, max_results=20)
-```
-Get APIs modified in the last 30 days.
-
-### Example 4: Protocol-Specific Discovery
-```
-find_sap_apis_by_protocol(protocol="ODATAV4", state="ACTIVE", max_results=100)
-```
-Find all active OData V4 APIs.
-
-### Example 5: Get Detailed Artifact Information
+### Example 2: Get Detailed Artifact Information
 ```
 get_sap_artifact_details(artifact_name="CE_PROJECTDEMANDCATEGORY_0001", artifact_type="API")
 get_artifact_packages(artifact_name="CE_PROJECTDEMANDCATEGORY_0001", artifact_type="API")
 ```
 Get complete details for an artifact and find which packages contain it.
 
-### Example 6: Migration Planning
+### Example 3: Migration Planning
 ```
 find_deprecated_sap_apis(max_results=50)
 ```
 Find deprecated APIs that may need migration.
 
-### Example 7: Package Statistics
+### Example 4: Package Statistics
 ```
 count_sap_artifacts(package_id="SAPS4HANACloud", artifact_type="API")
 ```
 Get count of APIs in a package.
 
-### Example 8: Comprehensive Search
-```
-search_sap_artifacts(
-    query="Invoice",
-    artifact_type="API",
-    subtype="ODATAV4",
-    state="ACTIVE",
-    max_results=25
-)
-```
-Multi-criteria search combining keyword, type, protocol, and state filters.
-
 ## Tips & Best Practices
-
-- **Use `search_sap_artifacts`** as your primary search tool - it's the most versatile and supports all common filters.
 - **Set `max_results`** appropriately - default values are conservative to avoid timeouts. Increase for comprehensive searches.
 - **Filter by `state="ACTIVE"`** to exclude deprecated APIs unless you're specifically looking for them.
 - **Use `get_sap_artifact_details`** after finding interesting artifacts to get complete metadata.
@@ -169,13 +132,12 @@ Multi-criteria search combining keyword, type, protocol, and state filters.
 ## Tool Priority Guide
 
 **Start with these tools:**
-1. `search_sap_artifacts` - Universal search
-2. `get_sap_package_info` - Package discovery
-3. `get_sap_artifact_details` - Detailed information
+1. `list_sap_content_packages` - Discover available packages
+2. `get_sap_package_info` - Package details
+3. `get_sap_artifact_details` - Detailed artifact information
 
 **For specific needs:**
-- Protocol filtering → `find_sap_apis_by_protocol`
-- Recent updates → `find_recent_sap_artifacts`
+- Type filtering → `list_sap_artifacts_by_type`
 - Migration planning → `find_deprecated_sap_apis`
 - Statistics → `count_sap_artifacts`
 - Relationships → `get_artifact_packages`
