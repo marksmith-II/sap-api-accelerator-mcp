@@ -116,9 +116,4 @@ Get complete details for an artifact.
 - Use `$select` in queries (already implemented) to reduce payload size
 - Consider caching results for frequently accessed data
 
-## Related Documentation
-
-- See `SAP_API_MCP_ANALYSIS.md` for comprehensive analysis and roadmap
-- See `POSTMAN_QUERY_EXAMPLES.md` for OData query patterns
-- See `POSTMAN_QUERIES_TO_ADD.md` for queries to add to your Postman collection
 
