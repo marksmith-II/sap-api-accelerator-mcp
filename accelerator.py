@@ -33,7 +33,7 @@ CONTENT_PACKAGES_URL = f"{SAP_CATALOG_BASE}/ContentPackages"
 ARTIFACTS_URL = f"{SAP_CATALOG_BASE}/Artifacts"
 USER_AGENT = "sap-api-accelerator-mcp/1.0"
 
-async def make_sap_api_request(url: str, params: Optional[Dict[str, Any]] = None, return_error: bool = False) -> Optional[Dict[str, Any]]:
+async def make_sap_api_request(url: str, params: Optional[Dict[str, Any]] = None, return_error: bool = False, accept_xml: bool = False) -> Optional[Any]:
     """
     Make a request to the SAP OData API with proper error handling.
 
@@ -43,16 +43,20 @@ async def make_sap_api_request(url: str, params: Optional[Dict[str, Any]] = None
         url: The API endpoint URL
         params: Optional query parameters
         return_error: If True, returns error details as dict instead of None
+        accept_xml: If True, accepts XML format (for $metadata requests)
     """
     headers = {
         "User-Agent": USER_AGENT,
-        "Accept": "application/json",  # Request JSON format
     }
-
-    # Ensure $format=json is in the parameters
-    if params is None:
-        params = {}
-    params["$format"] = "json"
+    
+    if accept_xml:
+        headers["Accept"] = "application/xml, application/atom+xml"
+    else:
+        headers["Accept"] = "application/json"
+        # Ensure $format=json is in the parameters
+        if params is None:
+            params = {}
+        params["$format"] = "json"
 
     logger.info(f"Making request to: {url} with params: {params}")
 
@@ -64,7 +68,9 @@ async def make_sap_api_request(url: str, params: Optional[Dict[str, Any]] = None
             # Raise an exception for 4xx or 5xx status codes
             response.raise_for_status()
             
-            # Return the parsed JSON response
+            # Return the parsed response
+            if accept_xml:
+                return response.text
             return response.json()
             
         except httpx.HTTPStatusError as e:
@@ -245,69 +251,148 @@ async def get_sap_artifact_details(artifact_name: str, artifact_type: str = "API
         artifact_name: Technical name of the artifact (e.g., 'CE_PROJECTDEMANDCATEGORY_0001').
         artifact_type: Type of artifact (default: 'API').
     """
-    url = f"{ARTIFACTS_URL}(Name='{escape_odata_string(artifact_name)}',Type='{escape_odata_string(artifact_type)}')"
-    
     logger.info(f"Fetching details for artifact: {artifact_name} (Type: {artifact_type})")
-    data = await make_sap_api_request(url)
     
-    if not data:
-        return f"Unable to fetch details for artifact: {artifact_name}"
+    # The /Artifacts endpoint doesn't support direct lookups (405) or filtering
+    # So we'll search through packages to find the artifact
+    # Strategy: Get list of packages, then search their artifacts
     
-    # Handle both OData v2 and v4 response formats
-    artifact = data.get('d') or data
-    
-    if not artifact:
-        return f"Artifact not found: {artifact_name} (Type: {artifact_type})"
-    
-    return format_artifact_detailed(artifact)
-
-
-@mcp.tool()
-async def list_sap_artifacts_by_type(
-    artifact_type: str,
-    subtype: Optional[str] = None,
-    package_id: Optional[str] = None,
-    max_results: int = 50
-) -> str:
-    """
-    List artifacts filtered by type, optionally by subtype and package.
-    
-    Args:
-        artifact_type: Type to filter (e.g., 'API', 'IntegrationFlow').
-        subtype: Optional SubType filter (e.g., 'ODATAV4', 'SOAP').
-        package_id: Optional package filter.
-        max_results: Maximum number of results (default: 50).
-    """
-    if package_id:
-        base_url = f"{CONTENT_PACKAGES_URL}('{package_id}')/Artifacts"
-    else:
-        base_url = ARTIFACTS_URL
-    
-    filters = [f"Type eq '{escape_odata_string(artifact_type)}'"]
-    if subtype:
-        filters.append(f"SubType eq '{escape_odata_string(subtype)}'")
-    
-    params = {
+    logger.info("Fetching packages to search for artifact...")
+    packages_params = {
         "$format": "json",
-        "$filter": " and ".join(filters),
-        "$top": str(max_results),
-        "$select": "Name,DisplayName,Type,SubType,Version,State,Description"
+        "$top": "1000",  # Get a large number of packages to ensure we find the artifact
+        "$select": "TechnicalName,DisplayName"
     }
     
-    logger.info(f"Listing artifacts by type: {artifact_type}, subtype: {subtype}")
-    data = await make_sap_api_request(base_url, params=params)
+    packages_data = await make_sap_api_request(CONTENT_PACKAGES_URL, params=packages_params, return_error=True)
     
-    if not data:
-        return f"Unable to fetch artifacts of type: {artifact_type}"
+    if not packages_data or 'error' in packages_data:
+        # If we can't get packages, try fetching artifacts directly (may work without filters)
+        logger.warning("Could not fetch packages. Trying direct artifact fetch...")
+        fetch_params = {
+            "$format": "json",
+            "$top": "10000",  # Try to fetch a very large number
+            "$select": "Name,DisplayName,Type,SubType,Version,State,Description,reg_id,CreatedAt,ModifiedAt"
+        }
+        
+        artifacts_data = await make_sap_api_request(ARTIFACTS_URL, params=fetch_params, return_error=True)
+        
+        if artifacts_data and 'error' not in artifacts_data:
+            results = artifacts_data.get('value') or artifacts_data.get('d', {}).get('results', [])
+            
+            if results:
+                # Search for exact match
+                for artifact in results:
+                    if (artifact.get('Name', '').upper() == artifact_name.upper() and 
+                        artifact.get('Type', '').upper() == artifact_type.upper()):
+                        logger.info(f"Found artifact '{artifact_name}' in direct fetch (searched {len(results)} artifacts)")
+                        return format_artifact_detailed(artifact)
+        
+        return f"Unable to fetch artifact details for: {artifact_name} (Type: {artifact_type}). Could not access packages or artifacts list."
     
-    results = data.get('value') or data.get('d', {}).get('results', [])
+    # Get packages list
+    packages = packages_data.get('value') or packages_data.get('d', {}).get('results', [])
     
-    if not results:
-        return f"No artifacts found of type: {artifact_type}"
+    if not packages:
+        return f"Unable to fetch artifact details for: {artifact_name} (Type: {artifact_type}). No packages available to search."
     
-    formatted = [format_artifact_entry(entry) for entry in results]
+    logger.info(f"Searching for artifact in {len(packages)} packages using concurrent requests...")
     
-    return f"Found {len(results)} artifact(s) of type '{artifact_type}':\n\n" + "\n\n---\n\n".join(formatted)
+    # Use concurrent requests with early termination
+    # Limit concurrency to avoid overwhelming the API
+    MAX_CONCURRENT = 20
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT)
+    found_artifact = None
+    found_event = asyncio.Event()
+    tasks = []
+    
+    async def search_package_artifacts(package: Dict[str, Any], index: int) -> Optional[Dict[str, Any]]:
+        """Search for artifact in a single package. Returns artifact if found, None otherwise."""
+        # Early termination check
+        if found_event.is_set():
+            return None
+        
+        package_id = package.get('TechnicalName', '')
+        if not package_id:
+            return None
+        
+        async with semaphore:
+            # Double-check early termination after acquiring semaphore
+            if found_event.is_set():
+                return None
+            
+            # Log progress periodically
+            if (index + 1) % 50 == 0 or index == 0:
+                logger.info(f"Searching package {index+1}/{len(packages)}: {package_id}")
+            
+            # Fetch artifacts from this package
+            package_artifacts_url = f"{CONTENT_PACKAGES_URL}('{escape_odata_string(package_id)}')/Artifacts"
+            package_artifacts_params = {
+                "$format": "json",
+                "$top": "1000",  # Get all artifacts from this package
+                "$select": "Name,DisplayName,Type,SubType,Version,State,Description,reg_id,CreatedAt,ModifiedAt"
+            }
+            
+            package_artifacts_data = await make_sap_api_request(package_artifacts_url, params=package_artifacts_params, return_error=True)
+            
+            if package_artifacts_data and 'error' not in package_artifacts_data:
+                package_artifacts = package_artifacts_data.get('value') or package_artifacts_data.get('d', {}).get('results', [])
+                
+                # Search for exact match (case-insensitive)
+                for artifact in package_artifacts:
+                    if found_event.is_set():
+                        return None
+                    
+                    if (artifact.get('Name', '').upper() == artifact_name.upper() and 
+                        artifact.get('Type', '').upper() == artifact_type.upper()):
+                        logger.info(f"Found artifact '{artifact_name}' in package '{package_id}' (searched {index+1} packages)")
+                        return artifact
+            
+            return None
+    
+    # Create tasks for all packages
+    for i, package in enumerate(packages):
+        task = asyncio.create_task(search_package_artifacts(package, i))
+        tasks.append(task)
+    
+    # Wait for first result or all tasks to complete
+    try:
+        # Use as_completed to get results as they arrive
+        for coro in asyncio.as_completed(tasks):
+            try:
+                result = await coro
+                if result is not None:
+                    # Found the artifact - signal early termination
+                    found_event.set()
+                    found_artifact = result
+                    
+                    # Cancel remaining tasks
+                    for task in tasks:
+                        if not task.done():
+                            task.cancel()
+                    
+                    # Wait for cancellations to complete (with timeout)
+                    if tasks:
+                        await asyncio.wait(tasks, timeout=1.0, return_when=asyncio.ALL_COMPLETED)
+                    break
+            except asyncio.CancelledError:
+                # Task was cancelled, continue to next
+                continue
+    except Exception as e:
+        logger.warning(f"Error during concurrent search: {e}")
+        # Cancel all remaining tasks
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        # Wait for cancellations
+        if tasks:
+            await asyncio.wait(tasks, timeout=1.0, return_when=asyncio.ALL_COMPLETED)
+    
+    if found_artifact:
+        return format_artifact_detailed(found_artifact)
+    
+    return f"Artifact not found: {artifact_name} (Type: {artifact_type}). Searched {len(packages)} packages but no exact match found. Verify the artifact name and type are correct."
+
 
 
 @mcp.tool()
@@ -341,156 +426,6 @@ Display Name: {display_name}
 Technical ID: {technical_name}
 Version: {version}
 Description: {description.strip()}"""
-
-
-@mcp.tool()
-async def count_sap_artifacts(
-    package_id: Optional[str] = None,
-    artifact_type: Optional[str] = None,
-    state: Optional[str] = None
-) -> str:
-    """
-    Get count of artifacts with optional filters.
-    
-    Args:
-        package_id: Optional package filter.
-        artifact_type: Optional type filter.
-        state: Optional state filter.
-    """
-    if package_id:
-        base_url = f"{CONTENT_PACKAGES_URL}('{package_id}')/Artifacts/$count"
-    else:
-        base_url = f"{ARTIFACTS_URL}/$count"
-    
-    # For count endpoint, we need to use filter in URL if package_id not provided
-    if not package_id:
-        filters = []
-        if artifact_type:
-            filters.append(f"Type eq '{escape_odata_string(artifact_type)}'")
-        if state:
-            filters.append(f"State eq '{escape_odata_string(state)}'")
-        
-        if filters:
-            # Use filter endpoint instead of count endpoint
-            params = {
-                "$format": "json",
-                "$filter": " and ".join(filters),
-                "$count": "true",
-                "$top": "1"
-            }
-            data = await make_sap_api_request(ARTIFACTS_URL, params=params)
-            if data:
-                count = data.get('@odata.count') or data.get('d', {}).get('__count', 'Unknown')
-                return f"Count: {count} artifact(s)"
-    else:
-        # For package-specific count, use count endpoint
-        params = {"$format": "json"}
-        data = await make_sap_api_request(base_url, params=params)
-        if data:
-            # Count endpoint returns just the number
-            count = data if isinstance(data, (int, str)) else data.get('value', data)
-            return f"Count: {count} artifact(s) in package '{package_id}'"
-    
-    return "Unable to get artifact count"
-
-
-@mcp.tool()
-async def find_deprecated_sap_apis(
-    package_id: Optional[str] = None,
-    max_results: int = 50
-) -> str:
-    """
-    Find deprecated APIs that may need migration.
-    
-    Args:
-        package_id: Optional package filter.
-        max_results: Maximum results (default: 50).
-    """
-    if package_id:
-        base_url = f"{CONTENT_PACKAGES_URL}('{package_id}')/Artifacts"
-    else:
-        base_url = ARTIFACTS_URL
-    
-    filters = [
-        "Type eq 'API'",
-        "State eq 'DEPRECATED'"
-    ]
-    
-    params = {
-        "$format": "json",
-        "$filter": " and ".join(filters),
-        "$top": str(max_results),
-        "$select": "Name,DisplayName,Type,SubType,Version,State,Description"
-    }
-    
-    logger.info(f"Finding deprecated APIs in package: {package_id or 'all'}")
-    data = await make_sap_api_request(base_url, params=params)
-    
-    if not data:
-        return "Unable to find deprecated APIs"
-    
-    results = data.get('value') or data.get('d', {}).get('results', [])
-    
-    if not results:
-        return "No deprecated APIs found"
-    
-    formatted = [format_artifact_entry(entry) for entry in results]
-    
-    return f"Found {len(results)} deprecated API(s):\n\n" + "\n\n---\n\n".join(formatted)
-
-
-@mcp.tool()
-async def get_artifact_packages(artifact_name: str, artifact_type: str = "API") -> str:
-    """
-    Find which packages contain a specific artifact.
-    
-    Args:
-        artifact_name: Technical name of the artifact.
-        artifact_type: Type of artifact (default: 'API').
-    """
-    url = f"{ARTIFACTS_URL}(Name='{escape_odata_string(artifact_name)}',Type='{escape_odata_string(artifact_type)}')/ContentPackages"
-    
-    logger.info(f"Finding packages for artifact: {artifact_name}")
-    data = await make_sap_api_request(url)
-    
-    if not data:
-        return f"Unable to find packages for artifact: {artifact_name}"
-    
-    results = data.get('value') or data.get('d', {}).get('results', [])
-    
-    if not results:
-        return f"Artifact '{artifact_name}' not found in any packages"
-    
-    formatted = []
-    for entry in results:
-        technical_name = entry.get('TechnicalName', 'N/A')
-        display_name = entry.get('DisplayName', 'N/A')
-        formatted.append(f"Display Name: {display_name}\nTechnical ID: {technical_name}")
-    
-    return f"Artifact '{artifact_name}' found in {len(results)} package(s):\n\n" + "\n\n---\n\n".join(formatted)
-
-
-@mcp.tool()
-async def get_sap_service_metadata() -> str:
-    """
-    Get OData service metadata/schema for the SAP catalog service.
-    This provides information about available entity sets, properties, and relationships.
-    """
-    url = f"{SAP_CATALOG_BASE}/$metadata"
-    
-    logger.info("Fetching service metadata")
-    # Metadata is typically XML, but we'll try JSON first
-    params = {"$format": "json"}
-    data = await make_sap_api_request(url, params=params)
-    
-    if not data:
-        return "Unable to fetch service metadata. Note: Metadata may only be available in XML format."
-    
-    # Try to extract useful information
-    if isinstance(data, dict):
-        return f"Service metadata retrieved. Available entity sets and properties: {str(data)[:500]}..."
-    else:
-        return f"Service metadata: {str(data)[:1000]}..."
 
 
 def main():

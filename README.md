@@ -33,7 +33,7 @@ uv pip install -e .
 
 ## Available MCP Tools
 
-The server provides **8 powerful tools** for exploring SAP's API catalog:
+The server provides **3 powerful tools** for exploring SAP's API catalog:
 
 ### Core Discovery Tools
 
@@ -42,21 +42,6 @@ The server provides **8 powerful tools** for exploring SAP's API catalog:
 | `list_sap_content_packages` | `search_term` (optional), `max_results` (default: 100) | Lists all content packages with optional search filtering. Enhanced with OData filtering and result limiting. |
 | `get_sap_package_info` | `package_id` | Get detailed information about a specific content package. |
 | `get_sap_artifact_details` | `artifact_name`, `artifact_type` (default: API) | Get complete details for a specific artifact including all metadata. |
-
-### Advanced Search & Filter Tools
-
-| Tool | Parameters | Description |
-| --- | --- | --- |
-| `list_sap_artifacts_by_type` | `artifact_type`, `subtype` (optional), `package_id` (optional), `max_results` (default: 50) | List artifacts filtered by type, optionally by subtype and package. |
-| `count_sap_artifacts` | `package_id` (optional), `artifact_type` (optional), `state` (optional) | Get count of artifacts with optional filters for statistics. |
-| `find_deprecated_sap_apis` | `package_id` (optional), `max_results` (default: 50) | Find deprecated APIs that may need migration planning. |
-
-### Relationship & Navigation Tools
-
-| Tool | Parameters | Description |
-| --- | --- | --- |
-| `get_artifact_packages` | `artifact_name`, `artifact_type` (default: API) | Find which packages contain a specific artifact. |
-| `get_sap_service_metadata` | _None_ | Get OData service metadata/schema for the SAP catalog service. |
 
 All tools normalize OData v2/v4 responses, force JSON output (`$format=json`), and include defensive error handling so failures are reported rather than crashing the MCP session.
 
@@ -105,21 +90,8 @@ Get detailed information about a specific package.
 ### Example 2: Get Detailed Artifact Information
 ```
 get_sap_artifact_details(artifact_name="CE_PROJECTDEMANDCATEGORY_0001", artifact_type="API")
-get_artifact_packages(artifact_name="CE_PROJECTDEMANDCATEGORY_0001", artifact_type="API")
 ```
-Get complete details for an artifact and find which packages contain it.
-
-### Example 3: Migration Planning
-```
-find_deprecated_sap_apis(max_results=50)
-```
-Find deprecated APIs that may need migration.
-
-### Example 4: Package Statistics
-```
-count_sap_artifacts(package_id="SAPS4HANACloud", artifact_type="API")
-```
-Get count of APIs in a package.
+Get complete details for an artifact.
 
 ## Tips & Best Practices
 - **Set `max_results`** appropriately - default values are conservative to avoid timeouts. Increase for comprehensive searches.
@@ -136,11 +108,6 @@ Get count of APIs in a package.
 2. `get_sap_package_info` - Package details
 3. `get_sap_artifact_details` - Detailed artifact information
 
-**For specific needs:**
-- Type filtering → `list_sap_artifacts_by_type`
-- Migration planning → `find_deprecated_sap_apis`
-- Statistics → `count_sap_artifacts`
-- Relationships → `get_artifact_packages`
 
 ## Performance Considerations
 
